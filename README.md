@@ -38,11 +38,42 @@ Tests : `cd backend; ..\.venv\Scripts\python -m unittest test_app`
 
 ## Traduction
 
-Les propositions viennent de [MyMemory](https://mymemory.translated.net/doc/spec.php), gratuit et sans clé (environ 5 000 caractères/jour par adresse IP). Les appels passent par le serveur (`GET /api/translate?q=&from=&to=`) et chaque résultat est mis en cache dans la table `translations`, donc un même mot n'est demandé qu'une fois. Si le service est indisponible ou le quota atteint, l'utilisateur écrit simplement sa traduction. Les mots tapés sont envoyés à ce service tiers.
+Les propositions viennent de [MyMemory](https://mymemory.translated.net/doc/spec.php), gratuit et sans clé (environ 5 000 caractères/jour par adresse IP, environ 50 000 si la variable `MYMEMORY_EMAIL` contient un email de contact). Les appels passent par le serveur (`GET /api/translate?q=&from=&to=`) et chaque résultat est mis en cache dans la table `translations`, donc un même mot n'est demandé qu'une fois. Si le service est indisponible ou le quota atteint, l'utilisateur écrit simplement sa traduction. Les mots tapés sont envoyés à ce service tiers.
 
-## Production
+## Mise en ligne (PythonAnywhere, gratuit)
 
-Variables d'environnement : `SECRET_KEY` (sinon générée dans `backend/.secret_key`), `DB_PATH`, `PORT`, `COOKIE_SECURE=1` derrière HTTPS. Utiliser un serveur WSGI (ex. `waitress-serve --chdir backend app:app`) plutôt que le serveur de dev Flask.
+À chaque push sur `main`, le GitHub Action `.github/workflows/deploy-branch.yml` lance les tests, compile le front et publie le tout (avec `frontend/dist`) sur la branche **`deploy`**. Le serveur n'a donc pas besoin de Node.
+
+**Installation (une seule fois)**
+
+1. Créer un compte gratuit « Beginner » sur https://www.pythonanywhere.com.
+2. Onglet *Consoles* → *Bash* :
+   ```bash
+   git clone -b deploy https://github.com/Loayus/learn-english.git
+   mkvirtualenv revise --python=python3.12
+   pip install -r learn-english/requirements.txt
+   python -c "import secrets; print(secrets.token_hex(32))"   # clé secrète à copier
+   ```
+3. Onglet *Web* → *Add a new web app* → *Manual configuration* → *Python 3.12*.
+   - *Virtualenv* : `/home/TONPSEUDO/.virtualenvs/revise`
+   - Remplacer le contenu du *WSGI configuration file* par :
+     ```python
+     import os, sys
+     os.environ["SECRET_KEY"] = "LA_CLÉ_SECRÈTE"
+     os.environ["COOKIE_SECURE"] = "1"
+     os.environ["MYMEMORY_EMAIL"] = "ton.email@exemple.com"  # facultatif : quota de traduction x10
+     sys.path.insert(0, "/home/TONPSEUDO/learn-english/backend")
+     from app import app as application
+     ```
+   - Activer *Force HTTPS*, puis *Reload*. Le site est sur `https://TONPSEUDO.pythonanywhere.com`.
+
+**Mettre à jour le site** (après un push sur `main` et la fin de l'Action) : dans une console Bash,
+```bash
+bash ~/learn-english/deploy/update.sh
+```
+La base `backend/data.db` n'est jamais touchée par la mise à jour. Penser à cliquer sur *Run until 3 months from today* (onglet *Web*) tous les 3 mois.
+
+**Autre hébergeur** : variables d'environnement `SECRET_KEY` (sinon générée dans `backend/.secret_key`), `DB_PATH`, `PORT`, `COOKIE_SECURE=1` derrière HTTPS, `MYMEMORY_EMAIL` ; utiliser un serveur WSGI (ex. `waitress-serve --chdir backend app:app`) plutôt que le serveur de dev Flask.
 
 ## API
 
@@ -55,5 +86,7 @@ Variables d'environnement : `SECRET_KEY` (sinon générée dans `backend/.secret
 | GET / PUT / DELETE | `/api/lists/<id>` | Lire / modifier / supprimer (créateur seulement pour PUT/DELETE) |
 | POST | `/api/trainings` | Enregistrer une session terminée |
 | GET | `/api/me/history` | Historique + stats |
+| GET | `/api/languages` | Langues disponibles pour les listes de vocabulaire |
+| GET | `/api/translate?q=&from=&to=` | Propositions de traduction (MyMemory, mises en cache) |
 
 Les requêtes POST/PUT/DELETE exigent l'en-tête `X-Requested-With: fetch` (protection CSRF).

@@ -117,6 +117,13 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(r2.json["suggestions"], ["casa", "vivienda", "hogar"])
         self.assertEqual(len(calls), 1)
         self.assertIn("langpair=fr%7Ces", calls[0])
+        self.assertNotIn("de=", calls[0])
+
+        # Email de contact MyMemory transmis s'il est configuré
+        with mock.patch.dict(os.environ, {"MYMEMORY_EMAIL": "contact@example.com"}), \
+             mock.patch.object(app_module.urllib.request, "urlopen", fake_urlopen):
+            c.get("/api/translate?q=chat&from=fr&to=es")
+        self.assertIn("de=contact%40example.com", calls[-1])
 
         # Quota dépassé → 503, rien en cache
         payload = {"responseStatus": 200, "responseData": {"translatedText": "MYMEMORY WARNING: YOU USED ALL AVAILABLE FREE TRANSLATIONS"}}

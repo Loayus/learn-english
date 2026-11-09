@@ -384,7 +384,11 @@ def delete_list(list_id):
 
 def fetch_translations(query, src, dst):
     """Interroge MyMemory (gratuit, sans clé) et renvoie jusqu'à 4 propositions."""
-    url = TRANSLATE_URL + "?" + urllib.parse.urlencode({"q": query, "langpair": f"{src}|{dst}"})
+    params = {"q": query, "langpair": f"{src}|{dst}"}
+    # Avec un email de contact, MyMemory passe de ~5 000 à ~50 000 caractères/jour
+    if os.environ.get("MYMEMORY_EMAIL"):
+        params["de"] = os.environ["MYMEMORY_EMAIL"]
+    url = TRANSLATE_URL + "?" + urllib.parse.urlencode(params)
     req = urllib.request.Request(url, headers={"User-Agent": "revise-app/1.0"})
     with urllib.request.urlopen(req, timeout=6) as res:
         data = json.load(res)
