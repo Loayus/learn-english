@@ -1,4 +1,4 @@
-"""Learn English — API Flask + SQLite. Sert aussi le frontend statique."""
+"""Révise — API Flask + SQLite. Sert aussi le frontend React compilé."""
 import os
 import secrets
 import sqlite3
@@ -9,7 +9,7 @@ from flask import Flask, g, jsonify, request, send_from_directory, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 BASE = Path(__file__).resolve().parent
-FRONTEND = BASE.parent / "frontend"
+FRONTEND = BASE.parent / "frontend" / "dist"  # build React (npm run build)
 DB_PATH = Path(os.environ.get("DB_PATH", BASE / "data.db"))
 SECRET_FILE = BASE / ".secret_key"
 
@@ -25,14 +25,16 @@ CREATE TABLE IF NOT EXISTS lists (
   owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
+  front_label TEXT NOT NULL DEFAULT 'Question',
+  back_label TEXT NOT NULL DEFAULT 'Réponse',
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-CREATE TABLE IF NOT EXISTS words (
+CREATE TABLE IF NOT EXISTS items (
   id INTEGER PRIMARY KEY,
   list_id INTEGER NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
-  french TEXT NOT NULL,
-  english TEXT NOT NULL,
+  front TEXT NOT NULL,
+  back TEXT NOT NULL,
   position INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS trainings (
@@ -41,16 +43,34 @@ CREATE TABLE IF NOT EXISTS trainings (
   list_id INTEGER REFERENCES lists(id) ON DELETE SET NULL,
   list_title TEXT NOT NULL,
   mode TEXT NOT NULL CHECK (mode IN ('cards', 'typing')),
-  direction TEXT NOT NULL CHECK (direction IN ('fr_en', 'en_fr', 'mixed')),
+  direction TEXT NOT NULL CHECK (direction IN ('front_back', 'back_front', 'mixed')),
   word_count INTEGER NOT NULL,
   first_try INTEGER NOT NULL,
   attempts INTEGER NOT NULL,
   duration_sec INTEGER NOT NULL,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX IF NOT EXISTS idx_words_list ON words(list_id);
+CREATE INDEX IF NOT EXISTS idx_items_list ON items(list_id);
 CREATE INDEX IF NOT EXISTS idx_trainings_user ON trainings(user_id, created_at);
 """
+
+# v1 : passage du vocabulaire FR/EN à des listes génériques (recto / verso)
+MIGRATION_V1 = """
+ALTER TABLE words RENAME TO items;
+ALTER TABLE items RENAME COLUMN french TO front;
+ALTER TABLE items RENAME COLUMN english TO back;
+DROP INDEX IF EXISTS idx_words_list;
+ALTER TABLE lists ADD COLUMN front_label TEXT NOT NULL DEFAULT 'Français';
+ALTER TABLE lists ADD COLUMN back_label TEXT NOT NULL DEFAULT 'Anglais';
+ALTER TABLE trainings RENAME TO trainings_old;
+DROP INDEX IF EXISTS idx_trainings_user;
+""" + SCHEMA + """
+INSERT INTO trainings SELECT id, user_id, list_id, list_title, mode,
+  CASE direction WHEN 'fr_en' THEN 'front_back' WHEN 'en_fr' THEN 'back_front' ELSE 'mixed' END,
+  word_count, first_try, attempts, duration_sec, created_at FROM trainings_old;
+DROP TABLE trainings_old;
+"""
+DIRECTIONS = ("front_back", "back_front", "mixed")
 
 app = Flask(__name__, static_folder=None)
 
@@ -90,7 +110,16 @@ def close_db(_exc):
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     try:
-        conn.executescript(SCHEMA)
+        old = conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'words'").fetchone()
+        if old:  # base créée par la première version (FR/EN uniquement)
+            try:
+                conn.executescript("BEGIN;" + MIGRATION_V1 + "COMMIT;")
+            except sqlite3.Error:
+                if conn.in_transaction:
+                    conn.execute("ROLLBACK")
+                raise
+        else:
+            conn.executescript(SCHEMA)
     finally:
         conn.close()
 
@@ -185,27 +214,31 @@ def me():
 def parse_list_payload(data):
     title = str(data.get("title", "")).strip()
     description = str(data.get("description", "")).strip()
-    words = []
-    for w in data.get("words") or []:
-        if not isinstance(w, dict):
+    front_label = str(data.get("front_label", "")).strip() or "Question"
+    back_label = str(data.get("back_label", "")).strip() or "Réponse"
+    items = []
+    for it in data.get("items") or []:
+        if not isinstance(it, dict):
             continue
-        fr, en = str(w.get("french", "")).strip(), str(w.get("english", "")).strip()
-        if fr and en:
-            words.append((fr[:200], en[:200]))
+        front, back = str(it.get("front", "")).strip(), str(it.get("back", "")).strip()
+        if front and back:
+            items.append((front[:300], back[:300]))
     if not title or len(title) > 100:
         return None, "Le titre est obligatoire (100 caractères max)"
-    if not words:
-        return None, "Ajoute au moins un mot (français + anglais)"
-    if len(words) > 500:
-        return None, "500 mots maximum par liste"
-    return (title, description[:500], words), None
+    if len(front_label) > 30 or len(back_label) > 30:
+        return None, "Noms de colonnes : 30 caractères max"
+    if not items:
+        return None, "Ajoute au moins un élément (les deux colonnes remplies)"
+    if len(items) > 500:
+        return None, "500 éléments maximum par liste"
+    return (title, description[:500], front_label, back_label, items), None
 
 
-def save_words(list_id, words):
-    db().execute("DELETE FROM words WHERE list_id = ?", (list_id,))
+def save_items(list_id, items):
+    db().execute("DELETE FROM items WHERE list_id = ?", (list_id,))
     db().executemany(
-        "INSERT INTO words (list_id, french, english, position) VALUES (?, ?, ?, ?)",
-        [(list_id, fr, en, i) for i, (fr, en) in enumerate(words)],
+        "INSERT INTO items (list_id, front, back, position) VALUES (?, ?, ?, ?)",
+        [(list_id, f, b, i) for i, (f, b) in enumerate(items)],
     )
 
 
@@ -223,18 +256,34 @@ def get_owned_list(list_id):
 def list_lists():
     q = f"%{request.args.get('q', '').strip()}%"
     sql = """
-      SELECT l.id, l.title, l.description, l.created_at, l.updated_at,
-             u.username AS owner, l.owner_id,
-             (SELECT COUNT(*) FROM words w WHERE w.list_id = l.id) AS word_count
+      SELECT l.id, l.title, l.description, l.front_label, l.back_label,
+             l.created_at, l.updated_at, u.username AS owner, l.owner_id,
+             (SELECT COUNT(*) FROM items i WHERE i.list_id = l.id) AS item_count
       FROM lists l JOIN users u ON u.id = l.owner_id
-      WHERE (l.title LIKE ? OR l.description LIKE ? OR u.username LIKE ?)
+      WHERE (l.title LIKE ? OR l.description LIKE ? OR u.username LIKE ?
+             OR l.front_label LIKE ? OR l.back_label LIKE ?)
     """
-    params = [q, q, q]
+    params = [q] * 5
     if request.args.get("mine") == "1":
         sql += " AND l.owner_id = ?"
         params.append(session["user_id"])
     sql += " ORDER BY l.updated_at DESC LIMIT 200"
-    return jsonify(lists=[dict(r) for r in db().execute(sql, params)])
+    lists = [dict(r) for r in db().execute(sql, params)]
+    # Aperçu : les 3 premiers éléments de chaque liste
+    if lists:
+        ids = [l["id"] for l in lists]
+        rows = db().execute(
+            f"""SELECT list_id, front, back FROM items
+                WHERE list_id IN ({",".join("?" * len(ids))}) AND position < 3
+                ORDER BY list_id, position""",
+            ids,
+        )
+        previews = {}
+        for r in rows:
+            previews.setdefault(r["list_id"], []).append({"front": r["front"], "back": r["back"]})
+        for l in lists:
+            l["preview"] = previews.get(l["id"], [])
+    return jsonify(lists=lists)
 
 
 @app.post("/api/lists")
@@ -243,12 +292,12 @@ def create_list():
     parsed, err = parse_list_payload(body())
     if err:
         return error(err)
-    title, description, words = parsed
+    title, description, front_label, back_label, items = parsed
     cur = db().execute(
-        "INSERT INTO lists (owner_id, title, description) VALUES (?, ?, ?)",
-        (session["user_id"], title, description),
+        "INSERT INTO lists (owner_id, title, description, front_label, back_label) VALUES (?, ?, ?, ?, ?)",
+        (session["user_id"], title, description, front_label, back_label),
     )
-    save_words(cur.lastrowid, words)
+    save_items(cur.lastrowid, items)
     db().commit()
     return jsonify(id=cur.lastrowid), 201
 
@@ -263,10 +312,10 @@ def get_list(list_id):
     ).fetchone()
     if not row:
         return error("Liste introuvable", 404)
-    words = db().execute(
-        "SELECT id, french, english FROM words WHERE list_id = ? ORDER BY position", (list_id,)
+    items = db().execute(
+        "SELECT id, front, back FROM items WHERE list_id = ? ORDER BY position", (list_id,)
     ).fetchall()
-    return jsonify(list={**dict(row), "words": [dict(w) for w in words]})
+    return jsonify(list={**dict(row), "items": [dict(i) for i in items]})
 
 
 @app.put("/api/lists/<int:list_id>")
@@ -278,12 +327,13 @@ def update_list(list_id):
     parsed, msg = parse_list_payload(body())
     if msg:
         return error(msg)
-    title, description, words = parsed
+    title, description, front_label, back_label, items = parsed
     db().execute(
-        "UPDATE lists SET title = ?, description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-        (title, description, list_id),
+        """UPDATE lists SET title = ?, description = ?, front_label = ?, back_label = ?,
+             updated_at = CURRENT_TIMESTAMP WHERE id = ?""",
+        (title, description, front_label, back_label, list_id),
     )
-    save_words(list_id, words)
+    save_items(list_id, items)
     db().commit()
     return jsonify(id=list_id)
 
@@ -308,10 +358,10 @@ def create_training():
     lst = db().execute("SELECT id, title FROM lists WHERE id = ?", (d.get("list_id"),)).fetchone()
     if not lst:
         return error("Liste introuvable", 404)
-    if d.get("mode") not in ("cards", "typing") or d.get("direction") not in ("fr_en", "en_fr", "mixed"):
+    if d.get("mode") not in ("cards", "typing") or d.get("direction") not in DIRECTIONS:
         return error("Mode ou direction invalide")
     try:
-        nums = [max(0, int(d.get(k, 0))) for k in ("word_count", "first_try", "attempts", "duration_sec")]
+        nums = [max(0, int(d.get(k, 0))) for k in ("item_count", "first_try", "attempts", "duration_sec")]
     except (TypeError, ValueError):
         return error("Valeurs numériques invalides")
     db().execute(
@@ -329,13 +379,15 @@ def create_training():
 def history():
     uid = session["user_id"]
     rows = db().execute(
-        """SELECT id, list_id, list_title, mode, direction, word_count, first_try,
-                  attempts, duration_sec, created_at
-           FROM trainings WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 100""",
+        """SELECT t.id, t.list_id, t.list_title, t.mode, t.direction, t.word_count AS item_count,
+                  t.first_try, t.attempts, t.duration_sec, t.created_at,
+                  l.front_label, l.back_label
+           FROM trainings t LEFT JOIN lists l ON l.id = t.list_id
+           WHERE t.user_id = ? ORDER BY t.created_at DESC, t.id DESC LIMIT 100""",
         (uid,),
     ).fetchall()
     stats = db().execute(
-        """SELECT COUNT(*) AS sessions, COALESCE(SUM(word_count), 0) AS words,
+        """SELECT COUNT(*) AS sessions, COALESCE(SUM(word_count), 0) AS items,
                   COALESCE(SUM(duration_sec), 0) AS seconds,
                   (SELECT COUNT(*) FROM lists WHERE owner_id = ?) AS lists_created
            FROM trainings WHERE user_id = ?""",
@@ -351,6 +403,8 @@ def history():
 def frontend(path="index.html"):
     if path.startswith("api/"):
         return error("Route inconnue", 404)
+    if not (FRONTEND / "index.html").is_file():
+        return "Frontend non compilé : lance `npm run build` dans frontend/.", 503
     if (FRONTEND / path).is_file():
         return send_from_directory(FRONTEND, path)
     return send_from_directory(FRONTEND, "index.html")

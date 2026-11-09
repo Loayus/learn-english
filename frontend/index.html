@@ -3,21 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Learn English</title>
-  <link rel="stylesheet" href="/style.css">
+  <meta name="theme-color" content="#06262b">
+  <title>Révise — tes listes de révision</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..600&family=Karla:wght@400;500;700&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
 </head>
 <body>
-  <header class="topbar" id="topbar" hidden>
-    <a href="#/lists" class="brand">🇬🇧 Learn English</a>
-    <nav>
-      <a href="#/lists" data-nav="lists">Explorer</a>
-      <a href="#/my-lists" data-nav="my-lists">Mes listes</a>
-      <a href="#/lists/new" data-nav="new" class="btn btn-small">+ Nouvelle liste</a>
-      <a href="#/profile" data-nav="profile" id="nav-user">Profil</a>
-      <button class="link" id="logout">Déconnexion</button>
-    </nav>
-  </header>
-  <main id="app"></main>
-  <script src="/app.js"></script>
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
 </body>
 </html>
