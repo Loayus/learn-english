@@ -4,6 +4,7 @@ Site de révision : chacun crée des listes (vocabulaire, dates, formules, capit
 
 - **Comptes** : inscription / connexion (mot de passe hashé, session par cookie).
 - **Listes** : deux colonnes au nom libre (Français/Anglais, Question/Réponse, Pays/Capitale…). Créer, modifier, supprimer ses listes ; voir et utiliser celles des autres. Plusieurs réponses acceptées avec `/` (ex. `car / automobile`). Import en masse (`France ; Paris` par ligne).
+- **Listes de langues** : type « 🌍 Langues » → on choisit la langue connue et celle qu'on apprend (19 langues). En tapant un mot dans la 1re colonne, des traductions sont proposées pour la 2e : on clique sur une proposition (ou Tab/Entrée pour la première), ou on écrit la sienne.
 - **Mode Cartes** : on retourne la carte, puis « Je le connais » (la barre avance, la carte sort) ou « Je ne le connais pas » (la carte revient plus tard). Raccourcis : Espace, ← / →.
 - **Mode Écriture** : on tape la réponse ; la correction colore chaque lettre (rouge = fausse/en trop, souligné = manquante). En cas d'erreur, on peut quand même valider (faute de frappe) ou confirmer que c'était faux (l'élément revient).
 - **Sens** : colonne 1 → colonne 2, l'inverse, ou mélangé.
@@ -34,6 +35,10 @@ Puis ouvrir http://127.0.0.1:5000.
 **Développement du front** (rechargement à chaud) : lancer Flask comme ci-dessus, puis `cd frontend; npm run dev` et ouvrir http://localhost:5173 (les appels `/api` sont relayés vers Flask).
 
 Tests : `cd backend; ..\.venv\Scripts\python -m unittest test_app`
+
+## Traduction
+
+Les propositions viennent de [MyMemory](https://mymemory.translated.net/doc/spec.php), gratuit et sans clé (environ 5 000 caractères/jour par adresse IP). Les appels passent par le serveur (`GET /api/translate?q=&from=&to=`) et chaque résultat est mis en cache dans la table `translations`, donc un même mot n'est demandé qu'une fois. Si le service est indisponible ou le quota atteint, l'utilisateur écrit simplement sa traduction. Les mots tapés sont envoyés à ce service tiers.
 
 ## Production
 

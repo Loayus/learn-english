@@ -1,8 +1,11 @@
 """Tests de l'API : python -m unittest discover backend"""
+import io
+import json
 import os
 import sqlite3
 import tempfile
 import unittest
+from unittest import mock
 
 os.environ["DB_PATH"] = os.path.join(tempfile.mkdtemp(), "test.db")
 os.environ["SECRET_KEY"] = "test"
@@ -74,6 +77,54 @@ class ApiTest(unittest.TestCase):
         bob.post("/api/logout", json={}, headers=H)
         self.assertEqual(bob.get("/api/lists").status_code, 401)
 
+    def test_language_list_and_translate(self):
+        c = self.client_for("polyglotte")
+        codes = [l["code"] for l in c.get("/api/languages").json["languages"]]
+        self.assertIn("es", codes)
+
+        # Liste de vocabulaire avec langues
+        r = c.post("/api/lists", headers=H, json={
+            "title": "Espagnol", "front_label": "Français", "back_label": "Espagnol",
+            "front_lang": "fr", "back_lang": "es", "items": [{"front": "maison", "back": "casa"}]})
+        self.assertEqual(r.status_code, 201)
+        got = c.get(f"/api/lists/{r.json['id']}").json["list"]
+        self.assertEqual((got["front_lang"], got["back_lang"]), ("fr", "es"))
+        self.assertEqual(c.post("/api/lists", headers=H, json={
+            "title": "x", "front_lang": "fr", "back_lang": "klingon",
+            "items": [{"front": "a", "back": "b"}]}).status_code, 400)
+
+        # Traduction : appel MyMemory simulé, puis servi depuis le cache
+        calls = []
+        payload = {
+            "responseStatus": 200,
+            "responseData": {"translatedText": "casa"},
+            "matches": [{"translation": "casa", "match": 1}, {"translation": "VIVIENDA", "match": 0.98},
+                        {"translation": "hogar", "match": 0.9}, {"translation": "bruit", "match": 0.3}],
+        }
+
+        class FakeResponse(io.BytesIO):
+            def __enter__(self): return self
+            def __exit__(self, *a): pass
+
+        def fake_urlopen(req, timeout):
+            calls.append(req.full_url)
+            return FakeResponse(json.dumps(payload).encode())
+
+        with mock.patch.object(app_module.urllib.request, "urlopen", fake_urlopen):
+            r1 = c.get("/api/translate?q=Maison&from=fr&to=es")
+            r2 = c.get("/api/translate?q=maison&from=fr&to=es")
+        self.assertEqual(r1.json["suggestions"], ["casa", "vivienda", "hogar"])
+        self.assertEqual(r2.json["suggestions"], ["casa", "vivienda", "hogar"])
+        self.assertEqual(len(calls), 1)
+        self.assertIn("langpair=fr%7Ces", calls[0])
+
+        # Quota dépassé → 503, rien en cache
+        payload = {"responseStatus": 200, "responseData": {"translatedText": "MYMEMORY WARNING: YOU USED ALL AVAILABLE FREE TRANSLATIONS"}}
+        with mock.patch.object(app_module.urllib.request, "urlopen", fake_urlopen):
+            self.assertEqual(c.get("/api/translate?q=chien&from=fr&to=es").status_code, 503)
+        self.assertEqual(c.get("/api/translate?q=chien&from=fr&to=fr").status_code, 400)
+        self.assertEqual(c.get("/api/translate?q=&from=fr&to=es").status_code, 400)
+
     def test_migration_from_v0(self):
         # Base de la première version (vocabulaire FR/EN)
         path = os.path.join(tempfile.mkdtemp(), "old.db")
@@ -104,6 +155,7 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(conn.execute("SELECT front, back FROM items").fetchone(), ("chat", "cat"))
         self.assertEqual(conn.execute("SELECT front_label, back_label FROM lists").fetchone(), ("Français", "Anglais"))
         self.assertEqual(conn.execute("SELECT direction FROM trainings").fetchone(), ("back_front",))
+        self.assertEqual(conn.execute("SELECT front_lang, back_lang FROM lists").fetchone(), (None, None))
         conn.close()
 
     def test_frontend_served(self):

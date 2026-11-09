@@ -381,6 +381,44 @@ input, textarea { font: inherit; color: inherit; }
 }
 .chip:hover { border-color: var(--duck); }
 .chip.on { background: var(--duck); border-color: var(--duck); color: var(--cream); }
+.chip-lang { font-weight: 700; border-color: var(--duck-3); }
+
+/* Choix des langues */
+.lang-picker {
+  margin-top: 1rem; padding: 1rem 1.1rem .4rem; border-radius: 8px;
+  background: rgba(143, 211, 194, .18); border: 1px solid rgba(42, 140, 151, .25);
+  animation: card-in .4s cubic-bezier(.2, 1.2, .4, 1);
+}
+.manuscript .lang-picker .hint { padding-left: 0; }
+.lang-row { display: flex; align-items: flex-end; gap: .75rem; flex-wrap: wrap; }
+.lang-select { flex: 1 1 10rem; display: flex; flex-direction: column; gap: .25rem; }
+.lang-select span { font-size: .66rem; letter-spacing: .16em; text-transform: uppercase; color: var(--duck); font-weight: 700; }
+.lang-select select {
+  font: 1.05rem var(--serif); color: var(--ink); padding: .5rem .7rem; border-radius: 6px;
+  border: 1px solid var(--paper-line); background: #fff; color-scheme: light;
+}
+.lang-select select:focus { outline: 2px solid var(--duck); outline-offset: 0; }
+.swap {
+  width: 2.6rem; height: 2.6rem; border-radius: 50%; border: 1px solid var(--duck-3); background: var(--paper);
+  color: var(--duck); font-size: 1.1rem; transition: transform .3s;
+}
+.swap:hover { transform: rotate(180deg); background: var(--duck); color: var(--cream); }
+
+/* Propositions de traduction sous une ligne */
+.word-head span { font: 700 .7rem var(--sans); letter-spacing: .16em; text-transform: uppercase; color: var(--duck); padding: .2rem .3rem; }
+.word-head span:first-child { grid-column: 2; }
+.suggestions {
+  grid-column: 3 / 5; display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; margin: .1rem 0 .45rem;
+  animation: card-in .25s ease-out;
+}
+.suggest {
+  border: 1px dashed var(--duck-3); border-radius: 999px; background: rgba(143, 211, 194, .2);
+  padding: .2rem .7rem; font: italic .92rem var(--serif); color: var(--duck);
+}
+.suggest:hover { background: var(--mint); border-style: solid; }
+.suggest.on { background: var(--duck); color: var(--cream); border-style: solid; }
+.suggest.on::before { content: "✓ "; font-style: normal; }
+.suggest-note { font: italic .85rem var(--serif); color: var(--ink-soft); }
 .word-rows { list-style: none; margin: 0; padding: 0; }
 .word-rows .num { font: .75rem var(--mono); color: var(--coral); text-align: right; }
 .word-rows input {
@@ -390,6 +428,7 @@ input, textarea { font: inherit; color: inherit; }
 .word-rows input:nth-of-type(2) { font-style: italic; color: var(--duck); }
 .word-rows input:focus { outline: none; border-bottom: 2px solid var(--duck); }
 .word-rows input::placeholder { color: #b9ad94; }
+.word-rows li { row-gap: 0; }
 .erase { border: 0; background: none; font-size: 1.4rem; color: #b9ad94; line-height: 1; }
 .erase:hover { color: var(--coral); }
 .add-line {
@@ -598,6 +637,7 @@ input, textarea { font: inherit; color: inherit; }
   .modes { grid-template-columns: 1fr; }
   .seals { grid-template-columns: repeat(2, 1fr); }
   .word-head, .word-rows li { grid-template-columns: 1.4rem 1fr 1fr 1.6rem; gap: .4rem; }
+  .suggestions { grid-column: 2 / 5; }
   .entries li { grid-template-columns: 3.6rem 1fr auto; gap: .6rem; }
   .keys span { width: 1.1rem; height: 1.1rem; }
   .ribbons { right: -8px; }

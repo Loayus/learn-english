@@ -1,7 +1,10 @@
 """Révise — API Flask + SQLite. Sert aussi le frontend React compilé."""
+import json
 import os
 import secrets
 import sqlite3
+import urllib.parse
+import urllib.request
 from functools import wraps
 from pathlib import Path
 
@@ -27,6 +30,8 @@ CREATE TABLE IF NOT EXISTS lists (
   description TEXT NOT NULL DEFAULT '',
   front_label TEXT NOT NULL DEFAULT 'Question',
   back_label TEXT NOT NULL DEFAULT 'Réponse',
+  front_lang TEXT,  -- codes de langue (ex. 'fr', 'es') pour une liste de vocabulaire
+  back_lang TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -50,6 +55,13 @@ CREATE TABLE IF NOT EXISTS trainings (
   duration_sec INTEGER NOT NULL,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS translations (
+  langpair TEXT NOT NULL,
+  query TEXT NOT NULL,
+  results TEXT NOT NULL,  -- JSON : liste de propositions
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (langpair, query)
+);
 CREATE INDEX IF NOT EXISTS idx_items_list ON items(list_id);
 CREATE INDEX IF NOT EXISTS idx_trainings_user ON trainings(user_id, created_at);
 """
@@ -71,6 +83,15 @@ INSERT INTO trainings SELECT id, user_id, list_id, list_title, mode,
 DROP TABLE trainings_old;
 """
 DIRECTIONS = ("front_back", "back_front", "mixed")
+
+# Langues proposées pour les listes de vocabulaire (code MyMemory -> nom affiché)
+LANGUAGES = {
+    "fr": "Français", "en": "Anglais", "es": "Espagnol", "de": "Allemand", "it": "Italien",
+    "pt": "Portugais", "nl": "Néerlandais", "ru": "Russe", "pl": "Polonais", "sv": "Suédois",
+    "el": "Grec", "tr": "Turc", "ar": "Arabe", "he": "Hébreu", "zh-CN": "Chinois",
+    "ja": "Japonais", "ko": "Coréen", "hi": "Hindi", "la": "Latin",
+}
+TRANSLATE_URL = "https://api.mymemory.translated.net/get"
 
 app = Flask(__name__, static_folder=None)
 
@@ -120,6 +141,12 @@ def init_db():
                 raise
         else:
             conn.executescript(SCHEMA)
+        # v2 : langues des listes de vocabulaire
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(lists)")}
+        for col in ("front_lang", "back_lang"):
+            if col not in cols:
+                conn.execute(f"ALTER TABLE lists ADD COLUMN {col} TEXT")
+        conn.commit()
     finally:
         conn.close()
 
@@ -216,6 +243,9 @@ def parse_list_payload(data):
     description = str(data.get("description", "")).strip()
     front_label = str(data.get("front_label", "")).strip() or "Question"
     back_label = str(data.get("back_label", "")).strip() or "Réponse"
+    front_lang, back_lang = data.get("front_lang") or None, data.get("back_lang") or None
+    if (front_lang or back_lang) and (front_lang not in LANGUAGES or back_lang not in LANGUAGES):
+        return None, "Langue inconnue"
     items = []
     for it in data.get("items") or []:
         if not isinstance(it, dict):
@@ -231,7 +261,7 @@ def parse_list_payload(data):
         return None, "Ajoute au moins un élément (les deux colonnes remplies)"
     if len(items) > 500:
         return None, "500 éléments maximum par liste"
-    return (title, description[:500], front_label, back_label, items), None
+    return (title, description[:500], front_label, back_label, front_lang, back_lang, items), None
 
 
 def save_items(list_id, items):
@@ -292,10 +322,11 @@ def create_list():
     parsed, err = parse_list_payload(body())
     if err:
         return error(err)
-    title, description, front_label, back_label, items = parsed
+    title, description, front_label, back_label, front_lang, back_lang, items = parsed
     cur = db().execute(
-        "INSERT INTO lists (owner_id, title, description, front_label, back_label) VALUES (?, ?, ?, ?, ?)",
-        (session["user_id"], title, description, front_label, back_label),
+        """INSERT INTO lists (owner_id, title, description, front_label, back_label, front_lang, back_lang)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (session["user_id"], title, description, front_label, back_label, front_lang, back_lang),
     )
     save_items(cur.lastrowid, items)
     db().commit()
@@ -327,11 +358,11 @@ def update_list(list_id):
     parsed, msg = parse_list_payload(body())
     if msg:
         return error(msg)
-    title, description, front_label, back_label, items = parsed
+    title, description, front_label, back_label, front_lang, back_lang, items = parsed
     db().execute(
         """UPDATE lists SET title = ?, description = ?, front_label = ?, back_label = ?,
-             updated_at = CURRENT_TIMESTAMP WHERE id = ?""",
-        (title, description, front_label, back_label, list_id),
+             front_lang = ?, back_lang = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?""",
+        (title, description, front_label, back_label, front_lang, back_lang, list_id),
     )
     save_items(list_id, items)
     db().commit()
@@ -347,6 +378,68 @@ def delete_list(list_id):
     db().execute("DELETE FROM lists WHERE id = ?", (list_id,))
     db().commit()
     return jsonify(ok=True)
+
+
+# ---------- Traduction (propositions pour les listes de vocabulaire) ----------
+
+def fetch_translations(query, src, dst):
+    """Interroge MyMemory (gratuit, sans clé) et renvoie jusqu'à 4 propositions."""
+    url = TRANSLATE_URL + "?" + urllib.parse.urlencode({"q": query, "langpair": f"{src}|{dst}"})
+    req = urllib.request.Request(url, headers={"User-Agent": "revise-app/1.0"})
+    with urllib.request.urlopen(req, timeout=6) as res:
+        data = json.load(res)
+    main = (data.get("responseData") or {}).get("translatedText") or ""
+    if data.get("responseStatus") != 200 or "MYMEMORY WARNING" in main:
+        raise RuntimeError(main or "Service de traduction indisponible")
+    candidates = [main] + [
+        m.get("translation") or ""
+        for m in sorted(data.get("matches") or [], key=lambda m: -float(m.get("match") or 0))
+        if float(m.get("match") or 0) >= 0.7
+    ]
+    results, seen = [], set()
+    for c in candidates:
+        c = c.strip()
+        if c.isupper() and not query.isupper():
+            c = c.lower()  # "VIVIENDA" -> "vivienda"
+        if c and len(c) <= 200 and c.lower() not in seen:
+            seen.add(c.lower())
+            results.append(c)
+    return results[:4]
+
+
+@app.get("/api/languages")
+@login_required
+def languages():
+    return jsonify(languages=[{"code": c, "name": n} for c, n in LANGUAGES.items()])
+
+
+@app.get("/api/translate")
+@login_required
+def translate():
+    query = request.args.get("q", "").strip()
+    src, dst = request.args.get("from"), request.args.get("to")
+    if not query or len(query) > 200:
+        return error("Texte à traduire manquant ou trop long")
+    if src not in LANGUAGES or dst not in LANGUAGES or src == dst:
+        return error("Langues invalides")
+    langpair, key = f"{src}|{dst}", query.lower()
+    cached = db().execute(
+        "SELECT results FROM translations WHERE langpair = ? AND query = ?", (langpair, key)
+    ).fetchone()
+    if cached:
+        return jsonify(suggestions=json.loads(cached["results"]))
+    try:
+        results = fetch_translations(query, src, dst)
+    except Exception as exc:  # réseau, quota dépassé, réponse inattendue
+        app.logger.warning("Traduction impossible : %s", exc)
+        return error("Traduction indisponible pour le moment", 503)
+    if results:
+        db().execute(
+            "INSERT OR REPLACE INTO translations (langpair, query, results) VALUES (?, ?, ?)",
+            (langpair, key, json.dumps(results, ensure_ascii=False)),
+        )
+        db().commit()
+    return jsonify(suggestions=results)
 
 
 # ---------- Entraînements / historique ----------
