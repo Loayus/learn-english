@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { api, plural } from "../api.js";
 import { useAuth } from "../auth.jsx";
 import { OBJECTS, useRoom } from "../components/Room.jsx";
-import { Chest, Deck, Lamp, Notebook, Plant, Typewriter } from "../components/Props.jsx";
+import { Carrot, Chest, Deck, Lamp, Notebook, Plant, Typewriter } from "../components/Props.jsx";
 
 // Couleur de l'onglet d'une liste, stable selon son id
 const TABS = ["#0b4f5c", "#d9a441", "#e0715a", "#8fd3c2", "#2a8c97", "#a3472f", "#14213d"];
@@ -36,6 +36,8 @@ export default function Lists() {
     } },
     { key: "plant", label: "Margaux", El: <Plant />, action: () =>
       showNote("Elle s'appelle Margaux. Elle aussi révise le TOEIC.") },
+    { key: "carrot", label: "Matheo", El: <Carrot />, action: () =>
+      showNote("Eh oui, les carottes révisent aussi.") },
     { key: "notebook", label: "Ton profil", El: <Notebook />, action: () => navigate("/profil") },
     { key: "deck", label: "Les cartes", El: <Deck />, action: () =>
       showNote("Ouvre une liste et choisis « Cartes » : retourne, dis si tu savais.") },

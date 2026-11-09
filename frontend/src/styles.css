@@ -297,6 +297,7 @@ input, textarea { font: inherit; color: inherit; }
 }
 .prop:hover .prop-label, .prop:focus-visible .prop-label { opacity: 1; }
 .prop-lamp { width: clamp(90px, 12vw, 140px); }
+.prop-carrot { width: clamp(60px, 8vw, 90px); }
 .prop-chest { filter: grayscale(.35) brightness(.85); }
 
 /* ==========================================================

@@ -38,6 +38,28 @@ export function Plant() {
   );
 }
 
+export function Carrot() {
+  return (
+    <svg viewBox="0 0 90 130">
+      <g transform="rotate(8 45 126)">
+        <g fill={C.mint}>
+          <ellipse cx="38" cy="22" rx="5" ry="17" transform="rotate(-25 38 22)" />
+          <ellipse cx="52" cy="20" rx="5" ry="18" transform="rotate(20 52 20)" />
+          <ellipse cx="45" cy="16" rx="4.5" ry="16" fill={C.light} />
+        </g>
+        <path d="M27 40 Q45 30 63 40 Q60 80 47 124 Q45 128 43 124 Q30 80 27 40 Z" fill="#ec8a3c" />
+        <path d="M27 40 Q45 30 63 40 Q62 46 60 50 Q45 42 29 50 Q28 46 27 40 Z" fill="#f4a259" />
+        {[62, 78, 94].map((y, i) => (
+          <path key={y} d={`M${i % 2 ? 50 : 33} ${y} q5 2 9 0`} stroke="#c96a24" strokeWidth="2" fill="none" strokeLinecap="round" />
+        ))}
+        <circle cx="39" cy="54" r="2.6" fill={C.ink} />
+        <circle cx="51" cy="54" r="2.6" fill={C.ink} />
+        <path d="M41 61 Q45 65 49 61" stroke={C.ink} strokeWidth="1.8" fill="none" strokeLinecap="round" />
+      </g>
+    </svg>
+  );
+}
+
 export function Notebook() {
   return (
     <svg viewBox="0 0 120 130">

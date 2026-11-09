@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth.jsx";
 
 // Les objets du bureau qu'on peut « découvrir » en cliquant dessus
-export const OBJECTS = ["lamp", "plant", "notebook", "deck", "typewriter", "chest"];
+export const OBJECTS = ["lamp", "plant", "carrot", "notebook", "deck", "typewriter", "chest"];
 const STORAGE_KEY = "revise:discovered";
 
 const RoomContext = createContext(null);
