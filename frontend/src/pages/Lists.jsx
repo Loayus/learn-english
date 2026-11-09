@@ -35,7 +35,7 @@ export default function Lists() {
       showNote(lampOn ? "Clic. Il fait sombre… la lumière suivait ta souris." : "Et la lumière fut.");
     } },
     { key: "plant", label: "Margaux", El: <Plant />, action: () =>
-      showNote("Elle s'appelle Margaux. Elle aussi révise : photosynthèse, chapitre 3.") },
+      showNote("Elle s'appelle Margaux. Elle aussi révise le TOEIC.") },
     { key: "notebook", label: "Ton profil", El: <Notebook />, action: () => navigate("/profil") },
     { key: "deck", label: "Les cartes", El: <Deck />, action: () =>
       showNote("Ouvre une liste et choisis « Cartes » : retourne, dis si tu savais.") },
